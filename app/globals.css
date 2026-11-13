@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  --ada-blue: #1E3A5F;
+  --ada-violet: #7B6CF6;
+  --ada-soft: #F8F7FC;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background-color: var(--ada-soft);
+  color: #1a1a2e;
+}

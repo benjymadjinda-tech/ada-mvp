@@ -1,0 +1,280 @@
+// Ada MVP - Database Schema
+// PostgreSQL via Prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ========== USER ==========
+model User {
+  id               String    @id @default(cuid())
+  email            String    @unique
+  name             String?
+  avatarUrl        String?
+  educationLevel   EducationLevel?
+  // Stripe
+  stripeCustomerId String?   @unique
+  plan             Plan      @default(FREE)
+  planExpiresAt    DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  // Relations
+  subjects       UserSubject[]
+  progress       Progress[]
+  helpRequests   HelpRequest[]  @relation("Requester")
+  helpGiven      HelpRequest[]  @relation("Helper")
+  messagesSent   Message[]      @relation("Sender")
+  messagesRecv   Message[]      @relation("Receiver")
+  conversations  ConversationParticipant[]
+  aiSessions     AISession[]
+  homework       HomeworkSubmission[]
+  usage          UsageDaily[]
+  subscriptions  Subscription[]
+
+  @@map("users")
+}
+
+enum Plan {
+  FREE
+  PREMIUM
+  PRO
+}
+
+enum EducationLevel {
+  PRIMAIRE
+  COLLEGE
+  LYCEE
+  SUPERIEUR
+  PRO_ADULTE
+}
+
+// ========== SUBJECTS ==========
+model Subject {
+  id          String   @id @default(cuid())
+  slug        String   @unique   // math, code, french...
+  name        String
+  icon        String?
+  description String?
+  createdAt   DateTime @default(now())
+
+  users       UserSubject[]
+  lessons     Lesson[]
+  helpRequests HelpRequest[]
+
+  @@map("subjects")
+}
+
+model UserSubject {
+  id        String   @id @default(cuid())
+  userId    String
+  subjectId String
+  level     String?  // beginner | intermediate | advanced
+  goal      String?  // exam | skill | hobby | project
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject   Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, subjectId])
+  @@map("user_subjects")
+}
+
+// ========== LEARNING ==========
+model Lesson {
+  id          String   @id @default(cuid())
+  subjectId   String
+  title       String
+  content     String?  // markdown or JSON
+  order       Int      @default(0)
+  durationMin Int?
+  difficulty  String?  // easy | medium | hard
+  createdAt   DateTime @default(now())
+
+  subject     Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  progress    Progress[]
+
+  @@map("lessons")
+}
+
+model Progress {
+  id          String   @id @default(cuid())
+  userId      String
+  lessonId    String
+  status      ProgressStatus @default(NOT_STARTED)
+  score       Int?
+  timeSpent   Int?     // seconds
+  completedAt DateTime?
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson      Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonId])
+  @@map("progress")
+}
+
+enum ProgressStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+// ========== AI TUTOR ==========
+model AISession {
+  id        String   @id @default(cuid())
+  userId    String
+  mode      AIMode   @default(CHAT)  // CHAT | HOMEWORK
+  subjectId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  AIMessage[]
+  homework  HomeworkSubmission?
+
+  @@map("ai_sessions")
+}
+
+enum AIMode {
+  CHAT
+  HOMEWORK
+}
+
+model AIMessage {
+  id        String   @id @default(cuid())
+  sessionId String
+  role      String   // user | assistant | system
+  content   String
+  createdAt DateTime @default(now())
+
+  session   AISession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("ai_messages")
+}
+
+model HomeworkSubmission {
+  id          String   @id @default(cuid())
+  userId      String
+  sessionId   String?  @unique
+  imageUrl    String?
+  description String?
+  status      String   @default("pending") // pending | guiding | resolved
+  createdAt   DateTime @default(now())
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session     AISession? @relation(fields: [sessionId], references: [id])
+
+  @@map("homework_submissions")
+}
+
+// ========== PEER HELP ==========
+model HelpRequest {
+  id          String   @id @default(cuid())
+  requesterId String
+  helperId    String?
+  subjectId   String
+  lessonId    String?
+  title       String
+  description String?
+  status      HelpStatus @default(OPEN)
+  createdAt   DateTime @default(now())
+  resolvedAt  DateTime?
+
+  requester   User     @relation("Requester", fields: [requesterId], references: [id])
+  helper      User?    @relation("Helper", fields: [helperId], references: [id])
+  subject     Subject  @relation(fields: [subjectId], references: [id])
+  conversation Conversation?
+
+  @@map("help_requests")
+}
+
+enum HelpStatus {
+  OPEN
+  MATCHED
+  IN_PROGRESS
+  RESOLVED
+  CANCELLED
+}
+
+// ========== MESSAGING ==========
+model Conversation {
+  id             String   @id @default(cuid())
+  helpRequestId  String?  @unique
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  helpRequest    HelpRequest? @relation(fields: [helpRequestId], references: [id])
+  participants   ConversationParticipant[]
+  messages       Message[]
+
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  id             String   @id @default(cuid())
+  conversationId String
+  userId         String
+  joinedAt       DateTime @default(now())
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@map("conversation_participants")
+}
+
+model Message {
+  id             String   @id @default(cuid())
+  conversationId String
+  senderId       String
+  receiverId     String?
+  content        String
+  type           String   @default("text") // text | image | system
+  createdAt      DateTime @default(now())
+  readAt         DateTime?
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User         @relation("Sender", fields: [senderId], references: [id])
+  receiver       User?        @relation("Receiver", fields: [receiverId], references: [id])
+
+  @@map("messages")
+}
+
+// ========== SUBSCRIPTIONS & USAGE ==========
+model Subscription {
+  id                   String   @id @default(cuid())
+  userId               String
+  stripeSubscriptionId String   @unique
+  stripePriceId        String
+  status               String   // active | canceled | past_due | unpaid | trialing
+  currentPeriodStart   DateTime
+  currentPeriodEnd     DateTime
+  cancelAtPeriodEnd    Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+}
+
+model UsageDaily {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime @db.Date // jour uniquement
+  aiMessages Int     @default(0)
+  homework  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@map("usage_daily")
+}
