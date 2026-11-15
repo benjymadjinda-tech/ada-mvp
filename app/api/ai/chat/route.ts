@@ -1,25 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
 import { canSendAIMessage, incrementAIMessage } from "@/lib/usage";
 import { SOCRATIC_TUTOR_SYSTEM_PROMPT } from "@/prompts/socratic-tutor";
 
 export async function POST(req: NextRequest) {
   try {
-    if (!process.env.OPENAI_API_KEY) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
       return NextResponse.json(
         { error: "OPENAI_API_KEY manquante" },
         { status: 500 }
       );
     }
 
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
+    const OpenAI = (await import("openai")).default;
+    const openai = new OpenAI({ apiKey });
 
     const body = await req.json();
     const { messages, userId } = body;
 
-    // Vérification des limites d'usage (freemium)
     if (userId) {
       const { allowed } = await canSendAIMessage(userId, "FREE");
       if (!allowed) {
@@ -43,7 +41,6 @@ export async function POST(req: NextRequest) {
       max_tokens: 1000,
     });
 
-    // Incrémenter l'usage
     if (userId) {
       await incrementAIMessage(userId);
     }
