@@ -1,16 +1,44 @@
 import Stripe from "stripe";
 
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2025-02-24.acacia",
-  typescript: true,
-});
+let stripeInstance: Stripe | null = null;
 
-// Plans disponibles
+export function getStripe() {
+  if (!stripeInstance) {
+    if (!process.env.STRIPE_SECRET_KEY) {
+      throw new Error("STRIPE_SECRET_KEY manquante");
+    }
+    stripeInstance = new Stripe(process.env.STRIPE_SECRET_KEY, {
+      apiVersion: "2025-02-24.acacia",
+      typescript: true,
+    });
+  }
+  return stripeInstance;
+}
+
+// Pour compatibilité avec le code existant
+export const stripe = {
+  get customers() {
+    return getStripe().customers;
+  },
+  get checkout() {
+    return getStripe().checkout;
+  },
+  get subscriptions() {
+    return getStripe().subscriptions;
+  },
+  get billingPortal() {
+    return getStripe().billingPortal;
+  },
+  get webhooks() {
+    return getStripe().webhooks;
+  },
+};
+
 export const PLANS = {
   FREE: {
     name: "Gratuit",
     price: 0,
-    priceId: null,
+    priceId: null as string | null,
     features: [
       "10 messages IA / jour",
       "2 corrections de devoir / jour",
@@ -25,7 +53,7 @@ export const PLANS = {
   PREMIUM: {
     name: "Premium",
     price: 9.9,
-    priceId: process.env.STRIPE_PRICE_PREMIUM,
+    priceId: process.env.STRIPE_PRICE_PREMIUM as string | undefined,
     features: [
       "Messages IA illimités",
       "Corrections de devoirs illimitées",
@@ -42,7 +70,7 @@ export const PLANS = {
   PRO: {
     name: "Pro",
     price: 29,
-    priceId: process.env.STRIPE_PRICE_PRO,
+    priceId: process.env.STRIPE_PRICE_PRO as string | undefined,
     features: [
       "Tout Premium",
       "Mode mentor (plusieurs élèves)",
