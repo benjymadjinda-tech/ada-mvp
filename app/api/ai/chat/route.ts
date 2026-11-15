@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { canSendAIMessage, incrementAIMessage } from "@/lib/usage";
-import { SOCRATIC_TUTOR_SYSTEM_PROMPT } from "@/prompts/socratic-tutor";
 
 export async function POST(req: NextRequest) {
   try {
@@ -8,7 +6,7 @@ export async function POST(req: NextRequest) {
     if (!apiKey) {
       return NextResponse.json(
         { error: "OPENAI_API_KEY manquante" },
-        { status: 500 }
+        { status: 503 }
       );
     }
 
@@ -16,42 +14,70 @@ export async function POST(req: NextRequest) {
     const openai = new OpenAI({ apiKey });
 
     const body = await req.json();
-    const { messages, userId } = body;
+    const {
+      imageBase64,
+      description = "",
+      educationLevel = "LYCEE",
+      subjects = [],
+    } = body;
 
-    if (userId) {
-      const { allowed } = await canSendAIMessage(userId, "FREE");
-      if (!allowed) {
-        return NextResponse.json(
-          {
-            error: "Limite quotidienne atteinte. Passez en Premium pour continuer.",
-            code: "USAGE_LIMIT",
-          },
-          { status: 429 }
-        );
+    if (!imageBase64 && !description) {
+      return NextResponse.json(
+        { error: "Image ou description requise" },
+        { status: 400 }
+      );
+    }
+
+    const systemContent = `Tu es Ada, un tuteur socratique. Analyse le devoir et guide l'élève avec des questions. Ne donne jamais la réponse complète directement.
+Niveau : ${educationLevel}
+Matières : ${subjects.join(", ") || "non spécifiées"}`;
+
+    const userContent: any[] = [];
+
+    if (description) {
+      userContent.push({
+        type: "text",
+        text: `Description :\n${description}`,
+      });
+    }
+
+    if (imageBase64) {
+      const url = imageBase64.startsWith("data:")
+        ? imageBase64
+        : `data:image/jpeg;base64,${imageBase64}`;
+
+      userContent.push({
+        type: "image_url",
+        image_url: { url, detail: "high" },
+      });
+
+      if (!description) {
+        userContent.unshift({
+          type: "text",
+          text: "Voici la photo de mon devoir. Guide-moi sans me donner les réponses.",
+        });
       }
     }
 
-    const response = await openai.chat.completions.create({
+    const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
-        { role: "system", content: SOCRATIC_TUTOR_SYSTEM_PROMPT },
-        ...messages,
+        { role: "system", content: systemContent },
+        { role: "user", content: userContent },
       ],
-      temperature: 0.7,
-      max_tokens: 1000,
+      temperature: 0.6,
+      max_tokens: 600,
     });
 
-    if (userId) {
-      await incrementAIMessage(userId);
-    }
+    const reply =
+      completion.choices[0]?.message?.content ||
+      "J’ai bien reçu ton devoir. Quelle question veux-tu traiter en premier ?";
 
-    return NextResponse.json({
-      message: response.choices[0].message.content,
-    });
+    return NextResponse.json({ reply });
   } catch (error: any) {
-    console.error("Erreur AI chat:", error);
+    console.error("[Homework Vision Error]", error?.message || error);
     return NextResponse.json(
-      { error: error.message || "Erreur serveur" },
+      { error: error?.message || "Erreur lors de l’analyse du devoir" },
       { status: 500 }
     );
   }
