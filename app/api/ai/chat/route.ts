@@ -1,14 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
-import { checkUsageLimit, incrementUsage } from "@/lib/usage";
-import { SOCRATIC_TUTOR_PROMPT } from "@/prompts/socratic-tutor";
+import { canSendAIMessage, incrementAIMessage } from "@/lib/usage";
+import { SOCRATIC_TUTOR_SYSTEM_PROMPT } from "@/prompts/socratic-tutor";
 
 export async function POST(req: NextRequest) {
   try {
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
-
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json(
         { error: "OPENAI_API_KEY manquante" },
@@ -16,13 +12,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+
     const body = await req.json();
     const { messages, userId } = body;
 
     // Vérification des limites d'usage (freemium)
     if (userId) {
-      const canUse = await checkUsageLimit(userId, "ai_message");
-      if (!canUse) {
+      const { allowed } = await canSendAIMessage(userId, "FREE");
+      if (!allowed) {
         return NextResponse.json(
           {
             error: "Limite quotidienne atteinte. Passez en Premium pour continuer.",
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
-        { role: "system", content: SOCRATIC_TUTOR_PROMPT },
+        { role: "system", content: SOCRATIC_TUTOR_SYSTEM_PROMPT },
         ...messages,
       ],
       temperature: 0.7,
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
 
     // Incrémenter l'usage
     if (userId) {
-      await incrementUsage(userId, "ai_message");
+      await incrementAIMessage(userId);
     }
 
     return NextResponse.json({
